@@ -1,0 +1,11 @@
+# Compilation
+/target/
+
+# Configuration et données d'une instance : jamais versionnées
+.env
+relay.db
+relay.db-*
+relay-files/
+*.log
+
+.DS_Store
