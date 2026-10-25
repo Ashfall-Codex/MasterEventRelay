@@ -1,0 +1,32 @@
+name: CI
+
+# Branches et pull requests : main a son propre contrôle dans le workflow Prod, avant publication.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Analyse & Compilation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configuration Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache des dépendances
+        uses: Swatinem/rust-cache@v2
+
+      - name: Analyse Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Compilation
+        run: cargo build --locked --release

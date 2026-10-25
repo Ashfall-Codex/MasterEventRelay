@@ -1,0 +1,74 @@
+name: Prod
+
+# Chaque push sur main qui touche au code publie un paquet dans la release « prod », que le serveur
+# installe de lui-même. La documentation ne déclenche rien : une publication redémarre le relais.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # tag et release « prod »
+
+concurrency:
+  group: prod
+  cancel-in-progress: false
+
+env:
+  ARCHIVE: master-event-relay-linux-x86_64.tar.gz
+
+jobs:
+  package:
+    name: Paquet de prod
+    # Même Ubuntu que le serveur : le binaire trouve la même glibc.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configuration Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache des dépendances
+        uses: Swatinem/rust-cache@v2
+
+      - name: Analyse Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Compilation
+        run: cargo build --locked --release
+
+      - name: Archive et manifeste
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          mkdir -p dist/pkg
+          cp target/release/master-event-relay dist/pkg/
+          echo "$GITHUB_SHA" > dist/pkg/COMMIT
+          echo "$version" > dist/pkg/VERSION
+          tar -C dist/pkg -czf "dist/$ARCHIVE" .
+          sum=$(sha256sum "dist/$ARCHIVE" | cut -d' ' -f1)
+          jq -n --arg version "$version" --arg commit "$GITHUB_SHA" --arg sha256 "$sum" \
+                --arg archive "$ARCHIVE" --arg built "$(date -u +%FT%TZ)" \
+                '{version: $version, commit: $commit, sha256: $sha256, archive: $archive, built: $built}' \
+                > dist/manifest.json
+          cat dist/manifest.json
+
+      - name: Publication dans la release « prod »
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f prod "$GITHUB_SHA"
+          git push -f origin refs/tags/prod
+          if ! gh release view prod >/dev/null 2>&1; then
+            gh release create prod --verify-tag --title "Prod" \
+              --notes "Version en ligne du relais, remplacée à chaque push sur main. Le serveur suit manifest.json."
+          fi
+          # Archive d'abord, manifeste ensuite : le serveur ne voit la version qu'une fois l'archive en place.
+          gh release upload prod "dist/$ARCHIVE" --clobber
+          gh release upload prod dist/manifest.json --clobber
+          echo "Publié : $(jq -r '"\(.version) (\(.commit[0:7]))"' dist/manifest.json)" >> "$GITHUB_STEP_SUMMARY"
