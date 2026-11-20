@@ -67,7 +67,7 @@ impl Config {
             room_files_max_bytes: env::var("ROOM_FILES_MAX_BYTES")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(1024 * 1024 * 1024),
+                .unwrap_or(4 * 1024 * 1024 * 1024),
         }
     }
 }

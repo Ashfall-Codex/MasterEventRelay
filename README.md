@@ -82,7 +82,7 @@ Variables lues dans `.env`, à côté du binaire.
 | `PORT`, `HOST` | `8765`, `0.0.0.0` | adresse d'écoute |
 | `DATABASE_PATH` | `relay.db` | base SQLite |
 | `FILES_DIR` | `relay-files` | fichiers des PNJ moddés |
-| `FILE_MAX_BYTES`, `ROOM_FILES_MAX_BYTES` | 200 Mio, 1 Gio | plafonds par fichier et par salle |
+| `FILE_MAX_BYTES`, `ROOM_FILES_MAX_BYTES` | 200 Mio, 4 Gio | plafonds par fichier et par salle |
 | `ROOM_EXPIRY_MS` | 1 h | une salle sans activité depuis ce délai est fermée |
 | `TEMPLATE_EXPIRY_MS` | 7 jours | durée de vie d'un modèle partagé non permanent |
 | `TOMBSTONE_RETENTION_MS` | 30 jours | conservation des documents supprimés du coffre |
