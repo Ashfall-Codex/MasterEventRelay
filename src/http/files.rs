@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::{
-    body::Body,
+    body::{Body, BodyDataStream},
     extract::{ConnectInfo, DefaultBodyLimit, Path, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -113,6 +113,17 @@ async fn dir_size(dir: &FsPath) -> u64 {
     total
 }
 
+// Un refus envoyé avant la fin du corps ferme la connexion pendant que le proxy écrit encore :
+// Caddy répond alors 502 au plugin au lieu de notre statut. Réservé au MJ authentifié, et borné.
+async fn drain(stream: &mut BodyDataStream, mut read: u64, max: u64) {
+    while let Some(Ok(chunk)) = stream.next().await {
+        read += chunk.len() as u64;
+        if read > max {
+            break;
+        }
+    }
+}
+
 async fn upload(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -143,16 +154,21 @@ async fn upload(
         err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
     })?;
 
+    let max_file = state.config.file_max_bytes;
+    let mut stream = body.into_data_stream();
+
+    // Deux PNJ qui partagent un fichier le publient en parallèle : le second arrive ici.
     let final_path = dir.join(&hash);
     if tokio::fs::try_exists(&final_path).await.unwrap_or(false) {
+        drain(&mut stream, 0, max_file).await;
         return Ok(StatusCode::OK);
     }
 
     let used = dir_size(&dir).await;
-    let max_file = state.config.file_max_bytes;
     let room_budget = state.config.room_files_max_bytes.saturating_sub(used);
     let limit = max_file.min(room_budget);
     if limit == 0 {
+        drain(&mut stream, 0, max_file).await;
         return Err(err(StatusCode::INSUFFICIENT_STORAGE, "Room quota reached"));
     }
 
@@ -164,7 +180,6 @@ async fn upload(
 
     let mut hasher = Sha1::new();
     let mut written = 0u64;
-    let mut stream = body.into_data_stream();
     let mut failure: Option<ApiError> = None;
 
     while let Some(chunk) = stream.next().await {
@@ -178,6 +193,7 @@ async fn upload(
         written += chunk.len() as u64;
         if written > limit {
             failure = Some(err(StatusCode::PAYLOAD_TOO_LARGE, "File too large"));
+            drain(&mut stream, written, max_file).await;
             break;
         }
         hasher.update(&chunk);
